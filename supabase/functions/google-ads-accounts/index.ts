@@ -73,8 +73,14 @@ Deno.serve(async (req) => {
     console.log('Test mode:', test_mode)
 
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      throw new Error('Missing Authorization header')
+    console.log('Auth header:', authHeader ? `${authHeader.substring(0, 15)}...${authHeader.substring(authHeader.length - 5)}` : 'Missing');
+    
+    const accessToken = authHeader?.split(' ')[1];
+    console.log('Access token:', accessToken ? `${accessToken.substring(0, 10)}...${accessToken.substring(accessToken.length - 5)}` : 'Missing');
+
+    if (!accessToken) {
+      await logError(supabaseClient, userId, 'Missing access token', 'google_ads_accounts');
+      throw new Error('Missing access token');
     }
 
     console.log('Initializing Supabase client...')
@@ -175,8 +181,8 @@ Deno.serve(async (req) => {
 
     console.log('Using access token:', accessToken.substring(0, 10) + '...')
 
-    const developerToken = Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN')
-    console.log('Developer Token:', developerToken ? 'Present' : 'Missing');
+    const developerToken = Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN');
+    console.log('Developer token:', developerToken ? `${developerToken.substring(0, 5)}...${developerToken.substring(developerToken.length - 5)}` : 'Missing');
     
     if (!developerToken) {
       await logError(supabaseClient, userId, 'Missing Google Ads developer token', 'google_ads_accounts')
@@ -205,6 +211,7 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           const errorText = await response.text();
+          console.error('Full error response:', errorText);
           console.error('Error fetching all customers:', errorText);
           
           // Se o token não está aprovado, tenta buscar apenas contas de teste
