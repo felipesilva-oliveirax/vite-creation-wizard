@@ -181,240 +181,46 @@ Deno.serve(async (req) => {
       throw new Error('Missing Google Ads developer token')
     }
 
-    // Se estiver em modo teste, usar diretamente a conta de teste
-    if (test_mode) {
-      console.log('Test mode enabled, using test account...')
-      await logInfo(supabaseClient, userId, 'Test mode enabled, using test account', 'google_ads_accounts')
+    let accounts: any[] = [];
+    let useFallback = false;
 
-      const testAccountId = '2051368193'
-
-      const accounts = [{
-        customerId: testAccountId,
-        descriptiveName: `Test Account ${testAccountId}`,
-        currencyCode: 'USD',
-        timeZone: 'America/New_York',
-        autoTaggingEnabled: false,
-        isTestAccount: true
-      }]
-
-      return new Response(
-        JSON.stringify({ accounts }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        }
-      )
-    }
-
-    console.log('Fetching Google Ads accounts...')
-    await logInfo(supabaseClient, userId, 'Fetching Google Ads accounts', 'google_ads_accounts')
-
-    try {
-      const response = await fetch(
-        'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
-        {
+    // Primeiro, tenta buscar todas as contas no modo produção
+    if (!test_mode) {
+      try {
+        const response = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
+          method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'developer-token': developerToken,
-          },
-        }
-      )
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Google Ads API error:', errorText)
-        await logError(supabaseClient, userId, {
-          message: 'Google Ads API error',
-          details: errorText
-        }, 'google_ads_accounts')
-        
-        // Se o token não estiver aprovado, buscar todas as contas de teste disponíveis
-        if (errorText.includes('DEVELOPER_TOKEN_NOT_APPROVED')) {
-          console.log('Developer token not approved, searching for test accounts...')
-          await logInfo(supabaseClient, userId, 'Developer token not approved, searching for test accounts', 'google_ads_accounts')
-          
-          try {
-            // Buscar contas de teste usando endpoint específico
-            const testResponse = await fetch(
-              'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
-              {
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'developer-token': developerToken,
-                },
-              }
-            )
-
-            if (testResponse.ok) {
-              const testData = await testResponse.json()
-              const { resourceNames } = testData
-
-              if (resourceNames && Array.isArray(resourceNames)) {
-                const testAccounts: GoogleAdsAccount[] = []
-
-                for (const resourceName of resourceNames) {
-                  const customerId = resourceName.split('/').pop()
-                  if (!customerId) continue
-
-                  try {
-                    const accountResponse = await fetch(
-                      `https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:search`,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Authorization': `Bearer ${accessToken}`,
-                          'developer-token': developerToken,
-                          'Content-Type': 'application/json',
-                          'login-customer-id': customerId
-                        },
-                        body: JSON.stringify({
-                          query: `
-                            SELECT 
-                              customer.id,
-                              customer.descriptive_name,
-                              customer.test_account
-                            FROM customer
-                            WHERE customer.id = '${customerId}'
-                          `
-                        })
-                      }
-                    )
-
-                    if (accountResponse.ok) {
-                      const details = await accountResponse.json()
-                      const account = details.results?.[0]?.customer
-                      
-                      if (account && account.testAccount === true) {
-                        testAccounts.push({
-                          customerId: account.id,
-                          descriptiveName: account.descriptiveName || `Test Account ${account.id}`,
-                          isTestAccount: true
-                        })
-                      }
-                    } else {
-                      const errorText = await accountResponse.text()
-                      await logError(supabaseClient, userId, {
-                        message: `Error fetching test account ${customerId}`,
-                        details: errorText
-                      }, 'google_ads_accounts')
-                    }
-                  } catch (error) {
-                    await logError(supabaseClient, userId, {
-                      message: `Error processing test account ${customerId}`,
-                      error: error
-                    }, 'google_ads_accounts')
-                    console.error(`Error fetching test account ${customerId}:`, error)
-                  }
-                }
-
-                // Se encontrou contas de teste, retorna todas elas
-                if (testAccounts.length > 0) {
-                  await logInfo(supabaseClient, userId, `Found ${testAccounts.length} test accounts`, 'google_ads_accounts', {
-                    accountCount: testAccounts.length,
-                    accounts: testAccounts
-                  })
-
-                  return new Response(
-                    JSON.stringify({ accounts: testAccounts }),
-                    {
-                      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                      status: 200,
-                    }
-                  )
-                }
-              }
-            } else {
-              const errorText = await testResponse.text()
-              await logError(supabaseClient, userId, {
-                message: 'Error fetching test accounts list',
-                details: errorText
-              }, 'google_ads_accounts')
-            }
-          } catch (error) {
-            await logError(supabaseClient, userId, {
-              message: 'Error in test accounts fetch process',
-              error: error
-            }, 'google_ads_accounts')
-            console.error('Error fetching test accounts:', error)
           }
+        });
 
-          // Se não encontrou nenhuma conta de teste ou houve erro, retorna a conta de teste padrão
-          console.log('No test accounts found, using default test account')
-          await logInfo(supabaseClient, userId, 'No test accounts found, using default test account', 'google_ads_accounts')
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Error fetching customers:', errorText);
           
-          const testAccountId = '2051368193'
+          // Se o erro for DEVELOPER_TOKEN_NOT_APPROVED, tenta o fallback
+          if (errorText.includes('DEVELOPER_TOKEN_NOT_APPROVED')) {
+            useFallback = true;
+            await logInfo(supabaseClient, userId, 'Developer token not approved, falling back to test accounts', 'google_ads_accounts');
+          } else {
+            throw new Error(`Failed to fetch customers: ${errorText}`);
+          }
+        } else {
+          const data = await response.json();
+          const customerIds = data.resourceNames.map((name: string) => name.split('/')[1]);
           
-          const accounts = [{
-            customerId: testAccountId,
-            descriptiveName: `Test Account ${testAccountId}`,
-            isTestAccount: true
-          }]
-
-          return new Response(
-            JSON.stringify({ accounts }),
-            {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              status: 200,
-            }
-          )
-        }
-        
-        throw new Error(`Google Ads API error: ${errorText}`)
-      }
-
-      const responseData = await response.json()
-      console.log('Available accounts:', JSON.stringify(responseData))
-
-      const { resourceNames } = responseData
-      if (!resourceNames || !Array.isArray(resourceNames)) {
-        await logError(supabaseClient, userId, 'Invalid response format from Google Ads API', 'google_ads_accounts')
-        throw new Error('Invalid response format from Google Ads API')
-      }
-
-      console.log('Resource names retrieved:', resourceNames)
-
-      // Buscar detalhes de todas as contas acessíveis
-      const accounts: GoogleAdsAccount[] = []
-      
-      for (const resourceName of resourceNames) {
-        const customerId = resourceName.split('/').pop()
-        if (!customerId) continue
-
-        console.log(`Fetching details for account ${customerId}...`)
-        
-        try {
-          const accountResponse = await fetch(
-            `https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:search`,
-            {
-              method: 'POST',
+          // Busca detalhes de cada conta
+          for (const customerId of customerIds) {
+            const accountResponse = await fetch(`https://googleads.googleapis.com/v14/customers/${customerId}`, {
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'developer-token': developerToken,
-                'Content-Type': 'application/json',
-                'login-customer-id': customerId
-              },
-              body: JSON.stringify({
-                query: `
-                  SELECT 
-                    customer.id,
-                    customer.descriptive_name,
-                    customer.currency_code,
-                    customer.time_zone,
-                    customer.auto_tagging_enabled,
-                    customer.test_account
-                  FROM customer
-                  WHERE customer.id = '${customerId}'
-                `
-              })
-            }
-          )
+              }
+            });
 
-          if (accountResponse.ok) {
-            const details = await accountResponse.json()
-            const account = details.results?.[0]?.customer
-            
-            if (account) {
-              console.log('Account details:', account)
+            if (accountResponse.ok) {
+              const account = await accountResponse.json();
               accounts.push({
                 customerId: account.id,
                 descriptiveName: account.descriptiveName || `Account ${account.id}`,
@@ -422,48 +228,84 @@ Deno.serve(async (req) => {
                 timeZone: account.timeZone,
                 autoTaggingEnabled: account.autoTaggingEnabled,
                 isTestAccount: account.testAccount === true
-              })
+              });
             }
-          } else {
-            const errorText = await accountResponse.text()
-            await logError(supabaseClient, userId, {
-              message: `Failed to fetch details for account ${customerId}`,
-              details: errorText
-            }, 'google_ads_accounts')
-            console.error(`Failed to fetch details for account ${customerId}:`, errorText)
           }
-        } catch (error) {
-          await logError(supabaseClient, userId, {
-            message: `Error processing account ${customerId}`,
-            error: error
-          }, 'google_ads_accounts')
-          console.error(`Error fetching details for account ${customerId}:`, error)
         }
+      } catch (error) {
+        console.error('Error in production mode:', error);
+        useFallback = true;
+        await logError(supabaseClient, userId, error, 'google_ads_accounts_production');
       }
-
-      console.log('Final accounts list:', accounts)
-      await logInfo(supabaseClient, userId, `Successfully fetched ${accounts.length} accounts`, 'google_ads_accounts', {
-        accountCount: accounts.length,
-        accounts: accounts
-      })
-
-      return new Response(
-        JSON.stringify({ accounts }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        }
-      )
-
-    } catch (error) {
-      await logError(supabaseClient, userId, {
-        message: 'Error in main accounts fetch process',
-        error: error
-      }, 'google_ads_accounts')
-      console.error('Error:', error.message)
-      throw error
     }
 
+    // Se estiver em modo teste ou se precisar usar fallback
+    if (test_mode || useFallback) {
+      try {
+        // Primeiro tenta buscar todas as contas de teste
+        const testResponse = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'developer-token': developerToken,
+          }
+        });
+
+        if (testResponse.ok) {
+          const data = await testResponse.json();
+          const customerIds = data.resourceNames.map((name: string) => name.split('/')[1]);
+          
+          for (const customerId of customerIds) {
+            const accountResponse = await fetch(`https://googleads.googleapis.com/v14/customers/${customerId}`, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'developer-token': developerToken,
+              }
+            });
+
+            if (accountResponse.ok) {
+              const account = await accountResponse.json();
+              if (account.testAccount === true) {
+                accounts.push({
+                  customerId: account.id,
+                  descriptiveName: account.descriptiveName || `Account ${account.id}`,
+                  currencyCode: account.currencyCode,
+                  timeZone: account.timeZone,
+                  autoTaggingEnabled: account.autoTaggingEnabled,
+                  isTestAccount: true
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching test accounts:', error);
+        await logError(supabaseClient, userId, error, 'google_ads_accounts_test');
+      }
+
+      // Se não encontrou nenhuma conta de teste, usa a conta fixa
+      if (accounts.length === 0) {
+        await logInfo(supabaseClient, userId, 'No test accounts found, using fixed test account', 'google_ads_accounts');
+        accounts.push({
+          customerId: '2051368193',
+          descriptiveName: 'Conta de Teste',
+          currencyCode: 'BRL',
+          timeZone: 'America/Sao_Paulo',
+          autoTaggingEnabled: false,
+          isTestAccount: true
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({
+      accounts
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+      },
+      status: 200,
+    })
   } catch (error) {
     console.error('Error:', error.message)
     
