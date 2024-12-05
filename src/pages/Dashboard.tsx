@@ -23,14 +23,18 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { isTestMode } = useTestMode();
   const { toast } = useToast();
 
   const fetchAccounts = async () => {
     try {
       setIsLoading(true);
+      setError(null);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
+        setError("Sessão expirada");
         toast({
           title: "Erro de autenticação",
           description: "Você precisa estar logado para ver suas contas.",
@@ -51,6 +55,7 @@ export default function Dashboard() {
 
       if (error) {
         console.error('Error fetching accounts:', error);
+        setError("Erro ao carregar contas");
         toast({
           title: "Erro ao buscar contas",
           description: "Não foi possível carregar suas contas do Google Ads.",
@@ -59,11 +64,15 @@ export default function Dashboard() {
         return;
       }
 
-      if (data && data.accounts) {
-        setAccounts(data.accounts);
+      if (!data || !data.accounts) {
+        setError("Nenhuma conta encontrada");
+        return;
       }
+
+      setAccounts(data.accounts);
     } catch (error) {
       console.error('Error:', error);
+      setError("Erro inesperado");
       toast({
         title: "Erro inesperado",
         description: "Ocorreu um erro ao buscar suas contas.",
@@ -90,41 +99,54 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Selecione uma conta Google Ads</h1>
           </div>
-          <Select onValueChange={handleAccountSelect} disabled={isLoading}>
-            <SelectTrigger>
-              <SelectValue placeholder={
-                isLoading 
-                  ? "Carregando contas..." 
-                  : isTestMode 
-                    ? "Selecione uma conta de teste" 
-                    : "Selecione uma conta"
-              } />
-            </SelectTrigger>
-            <SelectContent>
-              {isLoading ? (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  <span>Carregando contas...</span>
-                </div>
-              ) : (
-                <>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.customerId} value={account.customerId}>
-                      {account.descriptiveName} - ({account.customerId})
-                      {account.isTestAccount && " (Teste)"}
-                    </SelectItem>
-                  ))}
-                  {accounts.length === 0 && (
-                    <SelectItem value="" disabled>
-                      {isTestMode 
-                        ? "Nenhuma conta de teste encontrada. Tente mudar para o modo normal."
-                        : "Nenhuma conta encontrada. Tente mudar para o modo teste."}
-                    </SelectItem>
-                  )}
-                </>
-              )}
-            </SelectContent>
-          </Select>
+
+          {error ? (
+            <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-md">
+              <p>{error}</p>
+              <button
+                onClick={fetchAccounts}
+                className="text-sm underline mt-2 hover:text-destructive/80"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : (
+            <Select onValueChange={handleAccountSelect} disabled={isLoading}>
+              <SelectTrigger>
+                <SelectValue placeholder={
+                  isLoading
+                    ? "Carregando contas..."
+                    : isTestMode
+                      ? "Selecione uma conta de teste"
+                      : "Selecione uma conta"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {isLoading ? (
+                  <div className="flex items-center justify-center p-4">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <span>Carregando contas...</span>
+                  </div>
+                ) : (
+                  <>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.customerId} value={account.customerId}>
+                        {account.descriptiveName} - ({account.customerId})
+                        {account.isTestAccount && " (Teste)"}
+                      </SelectItem>
+                    ))}
+                    {accounts.length === 0 && (
+                      <SelectItem value="" disabled>
+                        {isTestMode
+                          ? "Nenhuma conta de teste encontrada. Tente mudar para o modo normal."
+                          : "Nenhuma conta encontrada. Tente mudar para o modo teste."}
+                      </SelectItem>
+                    )}
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </main>
     </div>
