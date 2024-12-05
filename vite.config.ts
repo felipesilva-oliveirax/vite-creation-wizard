@@ -5,6 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  base: '/vite-creation-wizard/', // Nome do seu repositório
   server: {
     host: "::",
     port: 8080,
