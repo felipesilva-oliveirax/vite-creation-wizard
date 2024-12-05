@@ -242,12 +242,16 @@ Deno.serve(async (req) => {
     // Se estiver em modo teste ou se precisar usar fallback
     if (test_mode || useFallback) {
       try {
+        // Usar uma conta de teste válida como login-customer-id
+        const testLoginId = '2051368193';
+        
         // Primeiro tenta buscar todas as contas de teste
         const testResponse = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'developer-token': developerToken,
+            'login-customer-id': testLoginId // Necessário para tokens em nível de teste
           }
         });
 
@@ -260,26 +264,35 @@ Deno.serve(async (req) => {
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'developer-token': developerToken,
+                'login-customer-id': testLoginId // Necessário para tokens em nível de teste
               }
             });
 
             if (accountResponse.ok) {
               const account = await accountResponse.json();
-              if (account.testAccount === true) {
+              // Em modo teste, considerar apenas contas que começam com 1111111111 ou a conta fixa
+              if (account.id.startsWith('1111111111') || account.id === testLoginId) {
                 accounts.push({
                   customerId: account.id,
                   descriptiveName: account.descriptiveName || `Account ${account.id}`,
-                  currencyCode: account.currencyCode,
-                  timeZone: account.timeZone,
-                  autoTaggingEnabled: account.autoTaggingEnabled,
+                  currencyCode: account.currencyCode || 'BRL',
+                  timeZone: account.timeZone || 'America/Sao_Paulo',
+                  autoTaggingEnabled: account.autoTaggingEnabled || false,
                   isTestAccount: true
                 });
               }
             }
           }
+        } else {
+          const errorText = await testResponse.text();
+          console.error('Error fetching test accounts:', errorText);
+          await logError(supabaseClient, userId, {
+            message: 'Error fetching test accounts',
+            details: errorText
+          }, 'google_ads_accounts_test');
         }
       } catch (error) {
-        console.error('Error fetching test accounts:', error);
+        console.error('Error in test account fetch:', error);
         await logError(supabaseClient, userId, error, 'google_ads_accounts_test');
       }
 
