@@ -182,57 +182,11 @@ Deno.serve(async (req) => {
     }
 
     let accounts: any[] = [];
-    let useFallback = false;
-
-    // Função auxiliar para buscar contas teste reais
-    const fetchTestAccounts = async () => {
-      const testLoginId = '2051368193'; // Necessário para API em modo teste
-      const testAccounts: any[] = [];
-
-      const testResponse = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'developer-token': developerToken,
-          'login-customer-id': testLoginId
-        }
-      });
-
-      if (testResponse.ok) {
-        const data = await testResponse.json();
-        const customerIds = data.resourceNames.map((name: string) => name.split('/')[1]);
-        
-        for (const customerId of customerIds) {
-          const accountResponse = await fetch(`https://googleads.googleapis.com/v14/customers/${customerId}`, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'developer-token': developerToken,
-              'login-customer-id': testLoginId
-            }
-          });
-
-          if (accountResponse.ok) {
-            const account = await accountResponse.json();
-            if (account.id.startsWith('1111111111')) {
-              testAccounts.push({
-                customerId: account.id,
-                descriptiveName: account.descriptiveName || `Account ${account.id}`,
-                currencyCode: account.currencyCode || 'BRL',
-                timeZone: account.timeZone || 'America/Sao_Paulo',
-                autoTaggingEnabled: account.autoTaggingEnabled || false,
-                isTestAccount: true
-              });
-            }
-          }
-        }
-      }
-
-      return testAccounts;
-    };
 
     if (!test_mode) {
       // Modo Produção
       try {
+        // Primeiro tenta buscar todas as contas
         const response = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
           method: 'GET',
           headers: {
@@ -243,15 +197,60 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Error fetching customers:', errorText);
+          console.error('Error fetching all customers:', errorText);
           
+          // Se o token não está aprovado, tenta buscar apenas contas de teste
           if (errorText.includes('DEVELOPER_TOKEN_NOT_APPROVED')) {
-            useFallback = true;
-            await logInfo(supabaseClient, userId, 'Developer token not approved, falling back to test accounts', 'google_ads_accounts');
+            await logInfo(supabaseClient, userId, 'Developer token not approved, trying to fetch test accounts', 'google_ads_accounts');
+            
+            // Tenta buscar apenas contas de teste
+            const testResponse = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'developer-token': developerToken,
+              }
+            });
+
+            if (!testResponse.ok) {
+              throw new Error('Failed to fetch test accounts');
+            }
+
+            const testData = await testResponse.json();
+            const testCustomerIds = testData.resourceNames.map((name: string) => name.split('/')[1]);
+            
+            for (const customerId of testCustomerIds) {
+              const accountResponse = await fetch(`https://googleads.googleapis.com/v14/customers/${customerId}`, {
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'developer-token': developerToken,
+                }
+              });
+
+              if (accountResponse.ok) {
+                const account = await accountResponse.json();
+                if (account.testAccount === true) {
+                  accounts.push({
+                    customerId: account.id,
+                    descriptiveName: account.descriptiveName || `Account ${account.id}`,
+                    currencyCode: account.currencyCode || 'BRL',
+                    timeZone: account.timeZone || 'America/Sao_Paulo',
+                    autoTaggingEnabled: account.autoTaggingEnabled || false,
+                    isTestAccount: true
+                  });
+                }
+              }
+            }
+
+            // Se não encontrou nenhuma conta de teste, retorna erro
+            if (accounts.length === 0) {
+              throw new Error('No test accounts found');
+            }
           } else {
             throw new Error(`Failed to fetch customers: ${errorText}`);
           }
         } else {
+          // Conseguiu buscar todas as contas
           const data = await response.json();
           const customerIds = data.resourceNames.map((name: string) => name.split('/')[1]);
           
@@ -268,9 +267,9 @@ Deno.serve(async (req) => {
               accounts.push({
                 customerId: account.id,
                 descriptiveName: account.descriptiveName || `Account ${account.id}`,
-                currencyCode: account.currencyCode,
-                timeZone: account.timeZone,
-                autoTaggingEnabled: account.autoTaggingEnabled,
+                currencyCode: account.currencyCode || 'BRL',
+                timeZone: account.timeZone || 'America/Sao_Paulo',
+                autoTaggingEnabled: account.autoTaggingEnabled || false,
                 isTestAccount: account.testAccount === true
               });
             }
@@ -278,33 +277,49 @@ Deno.serve(async (req) => {
         }
       } catch (error) {
         console.error('Error in production mode:', error);
-        useFallback = true;
         await logError(supabaseClient, userId, error, 'google_ads_accounts_production');
-      }
-
-      // Se precisar usar fallback em modo produção, tenta buscar apenas contas teste reais
-      if (useFallback) {
-        try {
-          accounts = await fetchTestAccounts();
-          
-          // Se não encontrou nenhuma conta teste real, lança erro
-          if (accounts.length === 0) {
-            throw new Error('No test accounts found');
-          }
-        } catch (error) {
-          console.error('Error fetching test accounts:', error);
-          throw new Error('Failed to load accounts');
-        }
+        throw error;
       }
     } else {
       // Modo Teste
       try {
-        // Primeiro tenta buscar contas teste reais
-        accounts = await fetchTestAccounts();
-        
-        // Se não encontrou nenhuma conta teste real, usa a conta fixa
+        const response = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'developer-token': developerToken,
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const customerIds = data.resourceNames.map((name: string) => name.split('/')[1]);
+          
+          for (const customerId of customerIds) {
+            const accountResponse = await fetch(`https://googleads.googleapis.com/v14/customers/${customerId}`, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'developer-token': developerToken,
+              }
+            });
+
+            if (accountResponse.ok) {
+              const account = await accountResponse.json();
+              accounts.push({
+                customerId: account.id,
+                descriptiveName: account.descriptiveName || `Account ${account.id}`,
+                currencyCode: account.currencyCode || 'BRL',
+                timeZone: account.timeZone || 'America/Sao_Paulo',
+                autoTaggingEnabled: account.autoTaggingEnabled || false,
+                isTestAccount: account.testAccount === true
+              });
+            }
+          }
+        }
+
+        // Se não encontrou nenhuma conta ou se houve erro, usa a conta fixa
         if (accounts.length === 0) {
-          await logInfo(supabaseClient, userId, 'No test accounts found, using fixed test account', 'google_ads_accounts');
+          await logInfo(supabaseClient, userId, 'No accounts found, using fixed test account', 'google_ads_accounts');
           accounts.push({
             customerId: '2051368193',
             descriptiveName: 'Conta de Teste',
