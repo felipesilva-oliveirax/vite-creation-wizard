@@ -415,18 +415,14 @@ Deno.serve(async (req) => {
             
             if (account) {
               console.log('Account details:', account)
-              // No modo teste, incluir apenas contas de teste
-              // No modo produção, incluir todas as contas
-              if (!test_mode || account.testAccount === true) {
-                accounts.push({
-                  customerId: account.id,
-                  descriptiveName: account.descriptiveName || `Account ${account.id}`,
-                  currencyCode: account.currencyCode,
-                  timeZone: account.timeZone,
-                  autoTaggingEnabled: account.autoTaggingEnabled,
-                  isTestAccount: account.testAccount === true
-                })
-              }
+              accounts.push({
+                customerId: account.id,
+                descriptiveName: account.descriptiveName || `Account ${account.id}`,
+                currencyCode: account.currencyCode,
+                timeZone: account.timeZone,
+                autoTaggingEnabled: account.autoTaggingEnabled,
+                isTestAccount: account.testAccount === true
+              })
             }
           } else {
             const errorText = await accountResponse.text()
