@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write # Necessário para fazer deploy no GitHub Pages
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -17,9 +20,10 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18'
+          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci # Usar ci em vez de install para melhor consistência
 
       - name: Build
         run: npm run build
@@ -33,3 +37,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          force_orphan: true # Criar branch gh-pages sem histórico
