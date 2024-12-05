@@ -229,16 +229,20 @@ Deno.serve(async (req) => {
 
               if (accountResponse.ok) {
                 const account = await accountResponse.json();
-                if (account.testAccount === true) {
-                  accounts.push({
-                    customerId: account.id,
-                    descriptiveName: account.descriptiveName || `Account ${account.id}`,
-                    currencyCode: account.currencyCode || 'BRL',
-                    timeZone: account.timeZone || 'America/Sao_Paulo',
-                    autoTaggingEnabled: account.autoTaggingEnabled || false,
-                    isTestAccount: true
-                  });
-                }
+                console.log('Account details:', {
+                  id: account.id,
+                  testAccount: account.testAccount,
+                  descriptiveName: account.descriptiveName
+                });
+                
+                accounts.push({
+                  customerId: account.id,
+                  descriptiveName: account.descriptiveName || `Account ${account.id}`,
+                  currencyCode: account.currencyCode || 'BRL',
+                  timeZone: account.timeZone || 'America/Sao_Paulo',
+                  autoTaggingEnabled: account.autoTaggingEnabled || false,
+                  isTestAccount: account.testAccount === true
+                });
               }
             }
 
@@ -264,6 +268,12 @@ Deno.serve(async (req) => {
 
             if (accountResponse.ok) {
               const account = await accountResponse.json();
+              console.log('Account details:', {
+                id: account.id,
+                testAccount: account.testAccount,
+                descriptiveName: account.descriptiveName
+              });
+              
               accounts.push({
                 customerId: account.id,
                 descriptiveName: account.descriptiveName || `Account ${account.id}`,
@@ -305,6 +315,12 @@ Deno.serve(async (req) => {
 
             if (accountResponse.ok) {
               const account = await accountResponse.json();
+              console.log('Account details:', {
+                id: account.id,
+                testAccount: account.testAccount,
+                descriptiveName: account.descriptiveName
+              });
+              
               accounts.push({
                 customerId: account.id,
                 descriptiveName: account.descriptiveName || `Account ${account.id}`,
