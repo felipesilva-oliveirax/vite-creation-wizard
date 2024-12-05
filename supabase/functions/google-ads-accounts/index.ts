@@ -176,10 +176,15 @@ Deno.serve(async (req) => {
     console.log('Using access token:', accessToken.substring(0, 10) + '...')
 
     const developerToken = Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN')
+    console.log('Developer Token:', developerToken ? 'Present' : 'Missing');
+    
     if (!developerToken) {
       await logError(supabaseClient, userId, 'Missing Google Ads developer token', 'google_ads_accounts')
       throw new Error('Missing Google Ads developer token')
     }
+
+    const test_mode = Deno.env.get('GOOGLE_ADS_TEST_MODE') === 'true';
+    console.log('Test Mode:', test_mode);
 
     let accounts: any[] = [];
 
@@ -187,12 +192,15 @@ Deno.serve(async (req) => {
       // Modo Produção
       try {
         // Primeiro tenta buscar todas as contas
+        const headers = {
+          'Authorization': `Bearer ${accessToken}`,
+          'developer-token': developerToken,
+        };
+        console.log('Request headers:', headers);
+
         const response = await fetch('https://googleads.googleapis.com/v14/customers:listAccessibleCustomers', {
           method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'developer-token': developerToken,
-          }
+          headers
         });
 
         if (!response.ok) {
